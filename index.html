@@ -3,31 +3,242 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DeepSeek Harness 深度架构图</title>
+<title>DSH 九层架构 · DeepSeek Harness 深度架构全景</title>
+<meta name="description" content="DeepSeek Harness 开源 Agent Harness 的九层架构深度解析:浏览器 UI、BFF 网关、插件组装、事件溯源核心、模型记忆、能力缝、LLM 适配、持久化、平台机制。">
 <style>
-  body { background: #0f172a; margin: 0; font-family: "Noto Sans CJK SC", "PingFang SC", sans-serif; }
-  .bar { background: #1e293b; padding: 14px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-  h1 { color: #e2e8f0; font-size: 18px; margin: 0; }
-  a { color: #7dd3fc; font-size: 13px; text-decoration: none; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; }
-  a:hover { background: #334155; }
-  a.dl { background: #0d9488; border-color: #0d9488; color: #fff; font-weight: bold; }
-  a.dl:hover { background: #0f766e; }
-  .stage { display: flex; justify-content: center; padding: 20px; }
-  img { max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 24px rgba(0,0,0,.5); cursor: zoom-in; }
-  .tip { color: #94a3b8; font-size: 12px; padding: 0 20px 14px; }
+  :root {
+    --bg: #070b14;
+    --bg2: #0d1424;
+    --panel: #0f1a2e;
+    --line: #1e2a3f;
+    --text: #e2e8f0;
+    --muted: #7c8ba1;
+    --accent: #22d3ee;
+    --accent2: #38bdf8;
+    --ok: #34d399;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.6;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace; }
+
+  /* 顶部导航 */
+  .nav {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 5vw;
+    background: rgba(7, 11, 20, .82);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .06em; }
+  .nav-brand .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent);
+  }
+  .nav-links { display: flex; gap: 24px; font-size: 13px; color: var(--muted); }
+  .nav-links a { color: inherit; text-decoration: none; transition: color .2s; }
+  .nav-links a:hover { color: var(--accent); }
+
+  /* Hero */
+  .hero { padding: 88px 5vw 48px; max-width: 1200px; margin: 0 auto; }
+  .hero .kicker {
+    font-family: ui-monospace, monospace;
+    font-size: 12px; letter-spacing: .28em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 20px;
+  }
+  .hero h1 {
+    font-size: clamp(40px, 7vw, 76px);
+    font-weight: 900; letter-spacing: .02em; line-height: 1.08;
+  }
+  .hero h1 .thin { color: var(--muted); font-weight: 400; }
+  .hero .flow {
+    margin: 26px 0 18px;
+    font-size: 13px; letter-spacing: .04em; color: var(--muted);
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  }
+  .hero .flow b { color: var(--text); font-weight: 600; }
+  .hero .flow .arr { color: var(--accent); }
+  .hero .sub { color: var(--muted); font-size: 15px; max-width: 640px; }
+
+  /* 图区 */
+  .stage { padding: 24px 5vw 56px; max-width: 1200px; margin: 0 auto; }
+  .stage .fig-title { font-size: 13px; color: var(--muted); margin: 0 0 10px; }
+  .stage .fig-title b { color: var(--text); }
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: border-color .25s;
+  }
+  .card:hover { border-color: #2b3b57; }
+  .card img { width: 100%; height: auto; display: block; cursor: zoom-in; }
+  .card .cap {
+    padding: 12px 18px; font-size: 12px; color: var(--muted);
+    border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  .card .cap .mono { color: var(--accent); }
+
+  /* 双图布局 */
+  .grid2 { display: grid; grid-template-columns: 5fr 4fr; gap: 20px; margin-top: 20px; align-items: start; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+
+  /* 下载区 */
+  .downloads { padding: 8px 5vw 64px; max-width: 1200px; margin: 0 auto; }
+  .dl-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 18px; }
+  .dl-head h2 { font-size: 22px; font-weight: 700; }
+  .dl-head span { font-size: 12px; color: var(--muted); }
+  .dl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+  .dl-item {
+    display: flex; flex-direction: column; gap: 6px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px; padding: 16px 18px;
+    text-decoration: none; color: inherit;
+    transition: transform .18s, border-color .18s;
+  }
+  .dl-item:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .dl-item .name { font-weight: 600; font-size: 14px; }
+  .dl-item .meta { font-size: 12px; color: var(--muted); }
+  .dl-item .meta .mono { color: var(--accent); }
+  .dl-main {
+    grid-column: span 2;
+    background: linear-gradient(135deg, rgba(34,211,238,.12), rgba(56,189,248,.05));
+    border-color: rgba(34,211,238,.4);
+  }
+  .dl-main .name { font-size: 16px; color: var(--accent); }
+  @media (max-width: 860px) { .dl-main { grid-column: span 1; } }
+
+  /* 九层清单 */
+  .layers { padding: 8px 5vw 72px; max-width: 1200px; margin: 0 auto; }
+  .layers h2 { font-size: 22px; font-weight: 700; margin-bottom: 18px; }
+  .layer-row {
+    display: grid; grid-template-columns: 56px 150px 1fr;
+    gap: 16px; align-items: baseline;
+    padding: 13px 4px;
+    border-bottom: 1px solid var(--line);
+    transition: background .15s;
+  }
+  .layer-row:hover { background: rgba(34,211,238,.04); }
+  .layer-row .no { font-family: ui-monospace, monospace; color: var(--accent); font-size: 14px; }
+  .layer-row .name { font-weight: 600; font-size: 14px; }
+  .layer-row .desc { color: var(--muted); font-size: 13px; }
+  @media (max-width: 640px) {
+    .layer-row { grid-template-columns: 40px 1fr; gap: 4px 12px; }
+    .layer-row .desc { grid-column: 2; }
+  }
+
+  /* Footer */
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 26px 5vw; text-align: center;
+    color: var(--muted); font-size: 12px;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
 </style>
 </head>
 <body>
-  <div class="bar">
-    <h1>DeepSeek Harness 深度架构图</h1>
-    <a href="dsh-architecture-deep.png" target="_blank">高清 PNG(6008×1447)</a>
-    <a href="dsh-architecture-deep.pdf" target="_blank">PDF 矢量版</a>
-    <a class="dl" href="dsh-architecture-all.zip" download>⬇ 一键下载全部(2.1MB)</a>
+
+<nav class="nav">
+  <div class="nav-brand mono"><span class="dot"></span>DSH ARCHITECTURE</div>
+  <div class="nav-links">
+    <a href="#figure">架构图</a>
+    <a href="#download">下载</a>
+    <a href="#layers">九层清单</a>
   </div>
-  <div class="stage">
-    <img src="dsh-architecture-deep.png" alt="DeepSeek Harness 深度架构图"
-         onclick="window.open('dsh-architecture-deep.png')" title="点击查看原图">
+</nav>
+
+<header class="hero">
+  <div class="kicker">DeepSeek Harness · Open-Source Agent Harness</div>
+  <h1>九层<span class="thin">架构</span></h1>
+  <div class="flow">
+    <b>01 BROWSER</b><span class="arr">→</span>
+    <b>02 GATEWAY</b><span class="arr">→</span>
+    <b>03 ASSEMBLY</b><span class="arr">→</span>
+    <b>04 CORE</b><span class="arr">→</span>
+    <b>05 MEMORY</b><span class="arr">→</span>
+    <b>06 SEAMS</b><span class="arr">→</span>
+    <b>07 LLM</b><span class="arr">→</span>
+    <b>08 PERSISTENCE</b><span class="arr">→</span>
+    <b>09 PLATFORM</b>
   </div>
-  <div class="tip">下载包内含:高清 PNG / 预览图 / PDF / Mermaid / Graphviz 源文件。九层架构:① 浏览器 UI → ② BFF 网关 → ③ 应用组装 → ④ 核心运行时 → ⑤ 记忆与上下文 → ⑥ 能力缝 → ⑦ LLM 缝 → ⑧ 持久化 → ⑨ 平台机制。点击图片可查看高清原图。</div>
+  <p class="sub">基于 vendored Cordis 插件框架,一切皆是插件:模型适配器、工具注册表、会话日志、甚至 agent 主循环都可替换。事件溯源日志是唯一事实源。</p>
+</header>
+
+<section class="stage" id="figure">
+  <p class="fig-title"><b>主视觉</b> · AI 生成的 4K 架构海报(2160×3840,点击放大)</p>
+  <div class="card">
+    <img src="dsh-architecture-4k.png" alt="DSH 九层架构 4K 海报" onclick="window.open('dsh-architecture-4k.png')">
+    <div class="cap"><span>九层纵深:UI → 平台,事件流贯穿</span><span class="mono">gpt-image-2 · 3840×2160 POSTER</span></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <img src="dsh-architecture-deep.png" alt="DSH 九层技术架构图" onclick="window.open('dsh-architecture-deep.png')">
+      <div class="cap"><span>技术细节图 · 含全部组件与数据流</span><span class="mono">6008×1447</span></div>
+    </div>
+    <div class="card">
+      <img src="dsh-architecture-preview.png" alt="DSH 架构图预览" onclick="window.open('dsh-architecture-preview.png')">
+      <div class="cap"><span>快速预览版</span><span class="mono">2000px</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="downloads" id="download">
+  <div class="dl-head"><h2>下载素材</h2><span>全部文件 + 源工程格式,可二次编辑</span></div>
+  <div class="dl-grid">
+    <a class="dl-item dl-main" href="dsh-architecture-all.zip" download>
+      <span class="name">⬇ 一键下载全部</span>
+      <span class="meta"><span class="mono">dsh-architecture-all.zip</span> · 5.5 MB · 7 个文件</span>
+    </a>
+    <a class="dl-item" href="dsh-architecture-deep.pdf" download>
+      <span class="name">PDF 矢量版</span>
+      <span class="meta">可无限放大不糊</span>
+    </a>
+    <a class="dl-item" href="dsh-architecture-deep.png" download>
+      <span class="name">高清 PNG</span>
+      <span class="meta">6008 × 1447</span>
+    </a>
+    <a class="dl-item" href="dsh-architecture-4k.png" download>
+      <span class="name">4K 海报 PNG</span>
+      <span class="meta">2160 × 3840</span>
+    </a>
+    <a class="dl-item" href="dsh-architecture.mmd" download>
+      <span class="name">Mermaid 源文件</span>
+      <span class="meta">可编辑 · mermaid.live</span>
+    </a>
+  </div>
+</section>
+
+<section class="layers" id="layers">
+  <h2>九层清单</h2>
+  <div class="layer-row"><span class="no">01</span><span class="name">浏览器 Web UI</span><span class="desc">React 三栏界面 + 约 35 个客户端插件,模块系统按需加载</span></div>
+  <div class="layer-row"><span class="no">02</span><span class="name">BFF 网关</span><span class="desc">JSON-RPC 约 50 方法 + 双 WebSocket 事件流 + Typert 类型化 RPC</span></div>
+  <div class="layer-row"><span class="no">03</span><span class="name">应用组装</span><span class="desc">bundle 分层补丁(dsh-base → dsh-web-app → 用户层)→ Cordis Loader 热挂载</span></div>
+  <div class="layer-row"><span class="no">04</span><span class="name">核心运行时</span><span class="desc">追加式事件溯源日志(43 种事件)+ agent-loop turn/step 驱动 + 工具四段调度</span></div>
+  <div class="layer-row"><span class="no">05</span><span class="name">记忆与上下文</span><span class="desc">AGENTS.md 基线注入 · 上下文压缩摘要 · FTS5 全文检索 · 附件与溢出</span></div>
+  <div class="layer-row"><span class="no">06</span><span class="name">能力缝</span><span class="desc">约 30 个模型工具:fs / shell / PTY / sandbox / web / lsp / skill / subagent / workflow</span></div>
+  <div class="layer-row"><span class="no">07</span><span class="name">LLM 适配</span><span class="desc">ctx.llm 适配器注册表 → DeepSeekAdapter HTTP/SSE 流式调用</span></div>
+  <div class="layer-row"><span class="no">08</span><span class="name">持久化</span><span class="desc">JSONL zstd 分帧 / SQLite + FTS5 / storage KV / settings / credentials</span></div>
+  <div class="layer-row"><span class="no">09</span><span class="name">平台机制</span><span class="desc">Cordis 插件原语 · typert 类型反射 · SDK / ACP 出进程协议 · 模型自修改回路</span></div>
+</section>
+
+<footer>
+  DeepSeek Harness 深度架构解析 · 源码 <a href="https://github.com/deepseek-ai/deepseek-harness" target="_blank" rel="noopener">github.com/deepseek-ai/deepseek-harness</a>
+</footer>
+
 </body>
 </html>

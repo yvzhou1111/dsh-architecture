@@ -1,0 +1,156 @@
+digraph dsh_deep_architecture {
+  rankdir=TB;
+  graph [fontname="Noto Sans CJK SC", bgcolor="#ffffff", pad="0.4", nodesep="0.4", ranksep="0.55", splines=true];
+  node  [fontname="Noto Sans CJK SC", style="rounded,filled", shape=box, fontsize=10.5, margin="0.12,0.08"];
+  edge  [fontname="Noto Sans CJK SC", fontsize=9, color="#888888", arrowsize=0.6];
+
+  // ================= ① 浏览器层 =================
+  subgraph cluster_browser {
+    label="① 浏览器 — Web UI(React 18 + Cordis 客户端插件)";
+    fontsize=14; color="#1a73e8"; style="rounded"; penwidth=1.5;
+    UI [label="AppRoot → app-shell → 三栏 AppFrame\n侧栏(会话/工作区)| 对话流 | 详情面板", fillcolor="#e8f0fe"];
+    UIPLUG [label="约 35 个 ui-* 客户端插件\nui-conversation(流式渲染)/ ui-tool(调用树)/ ui-plan\nui-goal / ui-todo / ui-jobs / ui-subagent / ui-settings\nui-permission / ui-model-selection / ui-commands …", fillcolor="#e8f0fe"];
+    SHELLC [label="dsh-client-web shell(boot.tsx)\n客户端模块系统:按需拉取 /plugins/<id>/client.js", fillcolor="#dbe7fd"];
+    UI -> UIPLUG -> SHELLC;
+  }
+
+  // ================= ② 传输 + 网关 =================
+  subgraph cluster_gateway {
+    label="② 传输层与 BFF 网关(JSON-RPC)";
+    fontsize=14; color="#7b5ba6"; style="rounded"; penwidth=1.5;
+    RPC [label="HTTP POST /api/<endpoint>\nClientRequest {rpcId, method, payload}", fillcolor="#f0e8fa"];
+    WSMUX [label="WS /api/events.mux\n会话事件流(增量推送 session/event)", fillcolor="#f0e8fa"];
+    WSHOST [label="WS /api/events.host\n主机帧(host/status/workspace-*)", fillcolor="#f0e8fa"];
+    APIPROXY [label="api-gateway ctx.apiProxy\nRPC 分发约 50 方法\nsession.* 12 / workspace.* 7 / goal.* 6\nsettings.* / credentials.* / llm.* / host.*", fillcolor="#fff3e0"];
+    TYPERT [label="TypertGateway(类型化 RPC)\ngoals.* / commands.* / message-feedback.*\nplugin-inventory / dynamic.* 热运行", fillcolor="#fff3e0"];
+    RPC -> APIPROXY;
+    RPC -> TYPERT;
+  }
+
+  // ================= ③ 应用组装层 =================
+  subgraph cluster_boot {
+    label="③ 应用组装层 — 分层配置 + 插件装载";
+    fontsize=14; color="#2e7d32"; style="rounded"; penwidth=1.5;
+    BOOT [label="apps/cli bin.ts → profile-boot.ts\nweb 子命令 = --profile web 别名", fillcolor="#e6f4e6"];
+    PATCH [label="分层 patch 依次叠加\n① dsh-base bundle(地基:模型/工具/持久化/审批/遥测)\n② dsh-web-app bundle(web 骨架 + 约 50 个插件行)\n③ 用户 $DSH_HOME/profiles/web/cordis.patch.yml\n④ --patch 命令行覆盖", fillcolor="#e6f4e6"];
+    LOADER [label="vendored Cordis Loader\ncordis.yml 入口树 → 插件 Fiber 逐个挂载(热更新)", fillcolor="#c8e6c9"];
+    BOOT -> PATCH -> LOADER;
+  }
+
+  // ================= ④ 核心运行时 =================
+  subgraph cluster_core {
+    label="④ 核心运行时(packages/core)— 事件溯源 + turn/step 驱动";
+    fontsize=14; color="#b71c1c"; style="rounded"; penwidth=1.5;
+    SESSION [label="core/session — 追加式 SessionEvent 日志\n43 种事件类型,事件不可变深冻结\nSurfaceManager 折叠投影模型上下文\n模型可见 ⟺ 已入日志(运行时不变式)", fillcolor="#ffebee"];
+    LOOP [label="core/agent-loop — ReactLoopAgent\nturn(0..n steps)/ step(一次请求+其工具)\npre-step 裁决 → 流式 → 工具 → 回塞再循环", fillcolor="#ffebee"];
+    TOOLS [label="core/tools — 作用域工具注册表(ScopedLayers)\n执行四段:prepare → dispatch → finalize → finish\n并发安全分组:独占屏障 / 并行滚动池", fillcolor="#ffebee"];
+    PROMPT [label="core/system-prompt\n插件注册的 prompt 段 + 工具 schema 组装", fillcolor="#ffebee"];
+    INBOX [label="core/agent — Inbox 双队列\nnext-turn(普通消息)/ next-step(工具附加上下文)", fillcolor="#ffebee"];
+    SCOPE [label="core/scope — 每代理作用域注册原语\n(全局 / 会话 / 代理三级)", fillcolor="#ffebee"];
+    INBOX -> LOOP [label="claim"];
+    PROMPT -> LOOP [label="assemble"];
+    LOOP -> SESSION [label="append"];
+  }
+
+  // ================= ⑤ 模型记忆与上下文 =================
+  subgraph cluster_memory {
+    label="⑤ 模型记忆与上下文(跨会话能力)";
+    fontsize=14; color="#00695c"; style="rounded"; penwidth=1.5;
+    INST [label="context/agent-instructions\nAGENTS.md 基线折叠进每次 pre-step\n监听 tools/result:文件读写后异步 diff 增量注入", fillcolor="#e0f2f1"];
+    TIME [label="context/time-context\ntime-context / tmux-context / session-reference\n时间快照 / 终端位置 / @会话id 跨会话只读背景", fillcolor="#e0f2f1"];
+    COMPACT [label="compaction — 上下文压缩缝\ntokenMeter 压力≥80% 或 CONTEXT_WINDOW_EXCEEDED\n保留尾部 16% → LLM 生成 <compacted-summary>\ncheckpoint 以 user/message replace 掩蔽旧 span\ntool-result-pruner:大结果 head/tail 截断", fillcolor="#e0f2f1"];
+    SESSQ [label="session-query — 跨会话检索\nFTS5 全文检索(unicode61)\nreadSurface 快照读取 / traceSession 家谱 / traceEvent", fillcolor="#e0f2f1"];
+    ATTACH [label="attachment — 附件(sha256 内容寻址+去重)\nspill — 大工具结果溢出落盘,模型只见预览+locator", fillcolor="#e0f2f1"];
+    GOALS [label="goal(同会话目标,<goal_round> 推进)\nschedule(定时跟进注入) / message-feedback\nsession-title / session-stats(投影缓存加速)", fillcolor="#e0f2f1"];
+  }
+
+  // ================= ⑥ 能力缝 =================
+  subgraph cluster_seams {
+    label="⑥ 能力缝 — Service Definition(接口) + Provider(可换) + Consumer(工具)";
+    fontsize=14; color="#1565c0"; style="rounded"; penwidth=1.5;
+    FS [label="fs 家族:ctx.fs\nread / read_image / write / edit\nglob / grep(内置 ripgrep)\nstr_replace_editor\nProvider: fs-local / fs-sandbox\n策略:先读后写+版本守卫", fillcolor="#e3f2fd"];
+    EXEC [label="执行家族\nshell: bash / pwsh(bash-local/sandbox)\nsubprocess: 进程树终止/有界收集\nterminal: 持久 PTY(terminal_open/send/read)\ncode-runtime: run_code(worker 线程)", fillcolor="#e3f2fd"];
+    SANDBOX [label="sandbox — 进程隔离缝\nLinux bwrap→Landlock / macOS Seatbelt\n模式: read-only | workspace-write | full\n失败关闭 SANDBOX_UNAVAILABLE", fillcolor="#e3f2fd"];
+    EXT [label="外部家族\nweb: web_search / web_fetch(deepseek/exa/perplexity)\nlsp(4 只读语义操作) / skill\nsubagent(子代理委派,4 provider)\njobs: job_output/list/kill(后台任务)\nworkflow: workflow / ralph(编排脚本)", fillcolor="#e3f2fd"];
+    COLLAB [label="协作家族\ninteraction: approval 审批 / ask_user_question\ncommands(斜杠命令) / permissionPresets\nguard: 重复调用提醒 / 工具超时(TOOL_TIMEOUT)\npreset: agent-presets / persona(独占系统提示)", fillcolor="#e3f2fd"];
+    OTHER [label="其他\ntodo_write(全量替换任务列表)\nplan-mode(exit_plan_mode / /plan)\ncredentials(只存引用不存密钥)\nsettings(三层解析) / hooks(CC/Codex 桥)", fillcolor="#e3f2fd"];
+  }
+
+  // ================= ⑦ LLM 缝 =================
+  subgraph cluster_llm {
+    label="⑦ LLM 能力缝(模型请求路径)";
+    fontsize=14; color="#4a148c"; style="rounded"; penwidth=1.5;
+    LLMSVC [label="ctx.llm Service Definition\n消息/流式词汇表 + 适配器注册表\nagent/request → llm/stream 双 waterfall", fillcolor="#f3e5f5"];
+    DS [label="DeepSeekAdapter\nHTTP + SSE 流式消费\n重试 / 错误归一", fillcolor="#f3e5f5"];
+    LLMSVC -> DS [label="SSE"];
+  }
+
+  // ================= ⑧ 持久化 =================
+  subgraph cluster_persist {
+    label="⑧ 持久化 — 会话日志与配置";
+    fontsize=14; color="#4e342e"; style="rounded"; penwidth=1.5;
+    JSONL [label="JSONL 后端\n每会话一文件 / zstd 分帧 append-only\n写合并 + 逐 id 串行化 + torn-tail 修复", fillcolor="#efebe9"];
+    SQLITE [label="SQLite 后端\nsessions + events 表(data 为 JSON)\nFTS5 检索 + 投影缓存检查点", fillcolor="#efebe9"];
+    STORAGE [label="storage KV 中枢(unit→table→record)\nsettings / credentials(env + .dsh/.credentials.yaml)\nanonymous-user-id(遥测身份)", fillcolor="#efebe9"];
+  }
+
+  // ================= ⑨ 平台机制 =================
+  subgraph cluster_platform {
+    label="⑨ 框架与平台机制(扩展性基础设施)";
+    fontsize=14; color="#f57f17"; style="rounded"; penwidth=1.5;
+    CORDIS [label="vendored Cordis 原语\nctx.effect() 可逆副作用(卸载即回收)\nctx.on() 事件总线(emit/parallel/serial/bail/waterfall)\nctx.waterfall() 可拦截链(不 next 即否决)\nService 声明合并 + isolate() 作用域隔离\nFiber 生命周期(active/pending/failed)", fillcolor="#fff8e1"];
+    TYPERT [label="typert 类型反射层\nTS AST → zod schema + 反射清单\ntyped-RPC 与 API 目录基础", fillcolor="#fff8e1"];
+    SELF [label="extensions 模型自修改(内存态)\ncordis_inspect / define / run / stop / undefine\nnode:vm 沙箱热挂载宿主半 + 广播浏览器半", fillcolor="#fff8e1"];
+    SDK [label="sdk: 出进程 JSON-RPC\ninitialize / session.prompt / shutdown\nTS 客户端镜像 Python SDK", fillcolor="#fff8e1"];
+    ACP [label="acp: Agent Client Protocol 服务器\nnewSession / prompt / cancel / requestPermission\n仅自动化场景", fillcolor="#fff8e1"];
+    HOOKS [label="hooks 协议桥\nClaude Code / Codex hooks.json\n→ agent/pre-step, tools/pre-execute/post-execute", fillcolor="#fff8e1"];
+  }
+
+  // ================= 跨层连线 =================
+  SHELLC -> RPC [label="RPC 调用"];
+  SHELLC -> WSMUX [label="订阅会话事件"];
+  SHELLC -> WSHOST [label="订阅主机状态"];
+  WSMUX -> SESSION [dir=back, label="事件增量"];
+  WSHOST -> LOADER [dir=back];
+
+  LOADER -> APIPROXY [style=dashed, label="注入"];
+  LOADER -> TYPERT [style=dashed];
+  LOADER -> SESSION [style=dashed];
+  LOADER -> LOOP [style=dashed];
+  LOADER -> TOOLS [style=dashed];
+  LOADER -> PROMPT [style=dashed];
+  LOADER -> LLMSVC [style=dashed];
+  LOADER -> INST [style=dashed];
+  LOADER -> COMPACT [style=dashed];
+  LOADER -> SESSQ [style=dashed];
+  LOADER -> FS [style=dashed];
+  LOADER -> EXEC [style=dashed];
+  LOADER -> EXT [style=dashed];
+  LOADER -> COLLAB [style=dashed];
+  LOADER -> STORAGE [style=dashed];
+  LOADER -> CORDIS [label="基于", style=dashed];
+  LOADER -> TYPERT [style=dashed];
+
+  LOOP -> INST [label="pre-step 注入"];
+  LOOP -> TIME [label="pre-step 注入"];
+  LOOP -> COMPACT [label="压力检测"];
+  LOOP -> LLMSVC [label="agent/request + stream"];
+  LOOP -> TOOLS [label="调度"];
+  TOOLS -> FS [label="执行"];
+  TOOLS -> EXEC [label="执行"];
+  TOOLS -> SANDBOX [label="包装 argv"];
+  TOOLS -> EXT [label="执行"];
+  TOOLS -> COLLAB [label="审批/守卫"];
+  TOOLS -> OTHER [label="执行"];
+  SESSION -> SESSQ [label="索引/查询"];
+  SESSION -> ATTACH [label="引用"];
+  SESSION -> JSONL [label="异步落盘"];
+  SESSION -> SQLITE [label="异步落盘"];
+  SESSION -> GOALS [label="事件源"];
+  INST -> SESSION [label="差异写入 inbox"];
+  COMPACT -> LLMSVC [label="复用流生成摘要"];
+
+  {rank=same; BOOT; PATCH; LOADER;}
+  {rank=same; SESSION; LOOP; TOOLS; PROMPT; INBOX; SCOPE;}
+  {rank=same; INST; COMPACT; SESSQ;}
+}

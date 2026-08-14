@@ -1,0 +1,91 @@
+# DeepSeek Harness (dsh) 深度架构图 — Mermaid 版
+# 渲染: mermaid.live 粘贴本文件内容,或 `mmdc -i 本文件 -o 输出.png`
+
+```mermaid
+flowchart TB
+  subgraph B["① 浏览器 — Web UI(React 18 + Cordis 客户端插件)"]
+    UI["AppRoot → app-shell → 三栏 AppFrame(侧栏|对话流|详情)"]
+    UIPLUG["约 35 个 ui-* 客户端插件<br/>ui-conversation / ui-tool / ui-plan / ui-goal<br/>ui-todo / ui-jobs / ui-subagent / ui-settings / ui-permission…"]
+    SHELLC["dsh-client-web shell<br/>模块系统按需拉取 /plugins/id/client.js"]
+    UI --> UIPLUG --> SHELLC
+  end
+
+  subgraph G["② 传输层与 BFF 网关(JSON-RPC)"]
+    RPC["HTTP POST /api/endpoint<br/>ClientRequest{rpcId, method, payload}"]
+    WSMUX["WS /api/events.mux 会话事件流"]
+    WSHOST["WS /api/events.host 主机帧"]
+    APIPROXY["api-gateway 约50方法<br/>session.* / workspace.* / goal.* / settings.*…"]
+    TYPERT["TypertGateway 类型化RPC<br/>commands.* / message-feedback.* / dynamic.*"]
+    RPC --> APIPROXY & TYPERT
+  end
+
+  subgraph A["③ 应用组装层"]
+    BOOT["apps/cli bin.ts → profile-boot.ts<br/>web = --profile web"]
+    PATCH["分层 patch:dsh-base → dsh-web-app<br/>→ 用户 cordis.patch.yml → --patch"]
+    LOADER["Cordis Loader:入口树 → Fiber 挂载(热更新)"]
+    BOOT --> PATCH --> LOADER
+  end
+
+  subgraph C["④ 核心运行时(事件溯源 + turn/step)"]
+    SESSION["core/session 追加式事件日志<br/>43 种事件 / SurfaceManager 投影<br/>模型可见⟺已入日志"]
+    LOOP["core/agent-loop ReactLoopAgent<br/>turn(0..n steps)/step 驱动"]
+    TOOLS["core/tools 作用域注册表<br/>prepare→dispatch→finalize→finish"]
+    PROMPT["core/system-prompt 组装"]
+    INBOX["core/agent Inbox 双队列"]
+    INBOX --> LOOP --> SESSION
+    PROMPT --> LOOP
+  end
+
+  subgraph M["⑤ 模型记忆与上下文"]
+    INST["agent-instructions:AGENTS.md 基线<br/>+ 文件读写 diff 增量注入"]
+    TIME["time/tmux 快照 + @会话引用"]
+    COMPACT["compaction 压缩缝<br/>tokenMeter≥80% 或溢出→LLM 摘要<br/>checkpoint 掩蔽旧 span"]
+    SESSQ["session-query:FTS5 全文检索<br/>lineage 家谱 / 跨会话快照"]
+    ATTACH["attachment 内容寻址<br/>spill 大结果溢出预览"]
+    GOALS["goal / schedule / feedback<br/>session-title / stats 投影"]
+  end
+
+  subgraph SE["⑥ 能力缝(接口+可换Provider+工具)"]
+    FS["fs:read/write/edit/glob/grep<br/>str_replace_editor"]
+    EXEC["shell:bash/pwsh · subprocess<br/>terminal PTY · code-runtime"]
+    SB["sandbox 隔离<br/>bwrap/Landlock/Seatbelt"]
+    EXT["web/lsp/skill/subagent<br/>jobs/workflow 编排"]
+    CO["interaction 审批 · guard 守卫<br/>preset 组合 · commands"]
+    OT["todo_write · plan-mode<br/>credentials · settings · hooks"]
+  end
+
+  subgraph L["⑦ LLM 能力缝"]
+    LLMSVC["ctx.llm 适配器注册表<br/>agent/request → llm/stream"]
+    DS["DeepSeekAdapter HTTP/SSE"]
+    LLMSVC --> DS
+  end
+
+  subgraph P["⑧ 持久化"]
+    JSONL["JSONL zstd 分帧 append-only"]
+    SQLITE["SQLite events 表 + FTS5"]
+    ST["storage KV · settings · credentials"]
+  end
+
+  subgraph PL["⑨ 框架与平台"]
+    CORDIS["Cordis 原语<br/>effect()/on()/waterfall()/Service DI/Fiber"]
+    TYP["typert 类型反射层"]
+    SELF["模型自修改(内存态热挂载)"]
+    SDK["sdk 出进程 JSON-RPC"]
+    ACP2["acp Agent Client Protocol"]
+    HKS["hooks CC/Codex 协议桥"]
+  end
+
+  SHELLC --> RPC
+  SHELLC --> WSMUX & WSHOST
+  WSMUX -.事件增量.-> SESSION
+  LOADER -.注入.-> C & G & L & SE & M & P
+  LOADER --> CORDIS
+  LOOP --> M
+  LOOP --> L
+  LOOP --> TOOLS
+  TOOLS --> SE
+  TOOLS --> CO
+  SESSION --> P
+  SESSION --> SESSQ
+  COMPACT -.复用流.-> L
+```
